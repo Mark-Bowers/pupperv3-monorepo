@@ -92,6 +92,11 @@ class HailoDetectionNode(Node):
         self.zmq_socket.bind("tcp://*:5556")
         self.get_logger().info("ZMQ publisher bound to tcp://*:5556")
 
+        # Initialize ZMQ publisher for camera images (for GUI display)
+        self.zmq_image_socket = self.zmq_context.socket(zmq.PUB)
+        self.zmq_image_socket.bind("tcp://*:5557")
+        self.get_logger().info("ZMQ image publisher bound to tcp://*:5557")
+
         # Initialize fisheye projector
         camera_params_path = os.path.join(os.path.dirname(__file__), "camera_params.yaml")
         fisheye_model = fisheye_utils.create_fisheye_model_from_params(camera_params_path, 1400, 1050)
@@ -218,6 +223,9 @@ class HailoDetectionNode(Node):
             annotated_msg.data = jpg_buffer.tobytes()
         annotated_msg.header = msg.header
         self.annotated_pub.publish(annotated_msg)
+
+        # Publish image via ZMQ for GUI display
+        self.zmq_image_socket.send(jpg_buffer.tobytes())
 
     def preprocess_frame(self, frame: np.ndarray, model_h: int, model_w: int, video_h: int, video_w: int) -> np.ndarray:
         if model_h != video_h or model_w != video_w:

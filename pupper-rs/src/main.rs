@@ -1,17 +1,26 @@
 use clap::Parser;
 use eframe::{App, egui};
-use egui::{Color32, Vec2};
+use egui::{Color32, Vec2, Sense};
 use tracing::debug;
 
+mod camera;
 mod config;
 mod detection;
 mod eyes;
 mod system;
 mod ui;
 
+use camera::CameraReceiver;
 use config::{Config, load_config, print_config_info};
 use detection::DetectionReceiver;
 use eyes::{BlinkState, EyeTracker, draw_eye, draw_eyebrow};
+
+/// Display mode for the main view
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum DisplayMode {
+    Eyes,
+    Camera,
+}
 use system::{
     BagRecorderMonitor, BatteryMonitor, CpuMonitor, InternetMonitor, LlmServiceMonitor,
     ServiceMonitor,
@@ -40,6 +49,9 @@ struct ImageApp {
     internet_monitor: InternetMonitor,
     eye_tracker: EyeTracker,
     detection_receiver: DetectionReceiver,
+    camera_receiver: CameraReceiver,
+    camera_texture: Option<egui::TextureHandle>,
+    display_mode: DisplayMode,
     is_fullscreen: bool,
     show_topbar: bool,
 }
@@ -64,63 +76,136 @@ impl ImageApp {
             internet_monitor: InternetMonitor::new(),
             eye_tracker: EyeTracker::new(),
             detection_receiver: DetectionReceiver::new(),
+            camera_receiver: CameraReceiver::new(),
+            camera_texture: None,
+            display_mode: DisplayMode::Eyes,
             is_fullscreen,
             show_topbar: true,
         })
     }
 
     fn draw_main_ui(&mut self, ctx: &egui::Context) {
+        // File-based toggle: if /tmp/pupper_camera_mode exists, show camera
+        let file_mode = if std::path::Path::new("/tmp/pupper_camera_mode").exists() {
+            DisplayMode::Camera
+        } else {
+            DisplayMode::Eyes
+        };
+        if file_mode != self.display_mode {
+            self.display_mode = file_mode;
+            println!("Switched to {:?} mode (file toggle)", self.display_mode);
+        }
+
         egui::CentralPanel::default()
             .frame(egui::Frame::none().fill(Color32::BLACK))
             .show(ctx, |ui| {
-                // Use the whole panel; place eyes relative to the center
                 let rect = ui.max_rect();
-                let painter = ui.painter();
 
-                // Update eye tracker with latest person detections
-                let people = self.detection_receiver.get_people_locations();
-                self.eye_tracker.update(ctx, rect, people);
-
-                let center = rect.center();
-                // Horizontal spacing between eyes
-                let offset_x = 190.0;
-                // Slight vertical offset so they sit a bit high in the frame
-                let offset_y = -10.0;
-
-                // Calculate eye positions (with potential whole-eye movement)
-                let eye_offset = self
-                    .eye_tracker
-                    .get_whole_eye_offset(&self.config.eye_tracking);
-                let left_eye_center = center + Vec2::new(-offset_x, offset_y) + eye_offset;
-                let right_eye_center = center + Vec2::new(offset_x, offset_y) + eye_offset;
-
-                // Calculate pupil offset (for pupil-only movement)
-                let pupil_offset = self.eye_tracker.get_pupil_offset(&self.config.eye_tracking);
-
-                // Draw eyes (with pupil tracking)
-                draw_eye(&painter, left_eye_center, pupil_offset);
-                draw_eye(&painter, right_eye_center, pupil_offset);
-
-                // Draw blinking animation (black boxes coming down)
-                self.blink_state.draw_blink_boxes(
-                    &painter,
-                    left_eye_center,
-                    right_eye_center,
-                    &self.config.blink,
-                );
-
-                // Draw eyebrows on top layer so they're never covered by blinks
-                draw_eyebrow(&painter, left_eye_center);
-                draw_eyebrow(&painter, right_eye_center);
-
-                // Get people positions for potential eye tracking
-                let people = self.detection_receiver.get_people_locations();
-                if people.is_some() {
-                    debug!("Detected people: {:?}", people);
+                // Make the entire panel clickable to toggle display mode
+                let response = ui.allocate_rect(rect, Sense::click());
+                if response.clicked() {
+                    self.display_mode = match self.display_mode {
+                        DisplayMode::Eyes => DisplayMode::Camera,
+                        DisplayMode::Camera => DisplayMode::Eyes,
+                    };
+                    println!("Switched to {:?} mode", self.display_mode);
                 }
 
-                // TODO: Use people positions to update eye tracker target
+                match self.display_mode {
+                    DisplayMode::Eyes => self.draw_eyes_view(ctx, ui, rect),
+                    DisplayMode::Camera => self.draw_camera_view(ctx, ui, rect),
+                }
             });
+    }
+
+    fn draw_eyes_view(&mut self, ctx: &egui::Context, ui: &mut egui::Ui, rect: egui::Rect) {
+        let painter = ui.painter();
+
+        // Update eye tracker with latest person detections
+        let people = self.detection_receiver.get_people_locations();
+        self.eye_tracker.update(ctx, rect, people);
+
+        let center = rect.center();
+        // Horizontal spacing between eyes
+        let offset_x = 190.0;
+        // Slight vertical offset so they sit a bit high in the frame
+        let offset_y = -10.0;
+
+        // Calculate eye positions (with potential whole-eye movement)
+        let eye_offset = self
+            .eye_tracker
+            .get_whole_eye_offset(&self.config.eye_tracking);
+        let left_eye_center = center + Vec2::new(-offset_x, offset_y) + eye_offset;
+        let right_eye_center = center + Vec2::new(offset_x, offset_y) + eye_offset;
+
+        // Calculate pupil offset (for pupil-only movement)
+        let pupil_offset = self.eye_tracker.get_pupil_offset(&self.config.eye_tracking);
+
+        // Draw eyes (with pupil tracking)
+        draw_eye(&painter, left_eye_center, pupil_offset);
+        draw_eye(&painter, right_eye_center, pupil_offset);
+
+        // Draw blinking animation (black boxes coming down)
+        self.blink_state.draw_blink_boxes(
+            &painter,
+            left_eye_center,
+            right_eye_center,
+            &self.config.blink,
+        );
+
+        // Draw eyebrows on top layer so they're never covered by blinks
+        draw_eyebrow(&painter, left_eye_center);
+        draw_eyebrow(&painter, right_eye_center);
+
+        // Get people positions for potential eye tracking
+        let people = self.detection_receiver.get_people_locations();
+        if people.is_some() {
+            debug!("Detected people: {:?}", people);
+        }
+    }
+
+    fn draw_camera_view(&mut self, ctx: &egui::Context, ui: &mut egui::Ui, rect: egui::Rect) {
+        // Try to get the latest camera image
+        if let Some(color_image) = self.camera_receiver.get_latest_image() {
+            // Update or create the texture
+            let texture = self.camera_texture.get_or_insert_with(|| {
+                ctx.load_texture(
+                    "camera_image",
+                    color_image.clone(),
+                    egui::TextureOptions::LINEAR,
+                )
+            });
+
+            // Update the texture with the new image
+            texture.set(color_image, egui::TextureOptions::LINEAR);
+
+            // Calculate size to fit the image in the available rect while maintaining aspect ratio
+            let texture_size = texture.size_vec2();
+            let scale = (rect.width() / texture_size.x).min(rect.height() / texture_size.y);
+            let scaled_size = texture_size * scale;
+
+            // Center the image
+            let offset = (rect.size() - scaled_size) / 2.0;
+            let image_rect = egui::Rect::from_min_size(rect.min + offset, scaled_size);
+
+            // Draw the image
+            ui.painter().image(
+                texture.id(),
+                image_rect,
+                egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                Color32::WHITE,
+            );
+        } else {
+            // No image available yet - show a message
+            let painter = ui.painter();
+            painter.text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                "Waiting for camera...",
+                egui::FontId::proportional(24.0),
+                Color32::GRAY,
+            );
+        }
     }
 
     fn draw_status_ui(&mut self, ctx: &egui::Context) {
