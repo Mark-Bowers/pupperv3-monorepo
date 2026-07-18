@@ -1,4 +1,5 @@
 import logging
+import os
 from pathlib import Path
 
 from livekit.agents import (
@@ -6,7 +7,7 @@ from livekit.agents import (
     RunContext,
     AgentSession,
 )
-from livekit.agents.llm import function_tool
+from livekit.agents.llm import function_tool, FallbackAdapter
 
 import logging
 
@@ -212,8 +213,47 @@ def gemini_cartesia_session():
     )
 
 
+def spark_llm():
+    # Local LLM on the DGX Spark (Ollama, OpenAI-compatible API).
+    # gpt-oss handles this agent's 14-tool schema reliably; qwen3.6:35b-a3b
+    # stops emitting tool calls beyond ~7 tools (verified by bisection
+    # against a captured live request, 2026-07-18) and role-plays tricks
+    # instead. Keep reasoning effort low for conversational latency.
+    return openai.LLM(
+        model="gpt-oss:latest",
+        base_url="http://192.168.68.54:11434/v1",
+        api_key="ollama",
+        reasoning_effort="low",
+    )
+
+
+def cloud_llm():
+    # Cloud LLM via the OpenAI API; requires OPENAI_API_KEY in .env.local
+    # with available quota.
+    return openai.LLM(model="gpt-4.1-mini")
+
+
+def qwen_spark_session():
+    # Local-first brain: DGX Spark primary; if a cloud key is configured the
+    # FallbackAdapter fails over automatically when the Spark is unreachable
+    # (e.g. powered off or WiFi drop) and returns when it recovers.
+    llms = [spark_llm()]
+    if os.getenv("OPENAI_API_KEY"):
+        llms.append(cloud_llm())
+    brain = llms[0] if len(llms) == 1 else FallbackAdapter(llms)
+    return AgentSession(
+        llm=brain,
+        stt=deepgram.STT(model="nova-3", language="multi"),
+        tts=cartesia.TTS(voice="e7651bee-f073-4b79-9156-eff1f8ae4fd9", model="sonic-3"),
+        vad=silero.VAD.load(),
+        max_tool_steps=20,
+    )
+
+
 def get_pupster_session(agent_design: str):
-    if agent_design == "cascade":
+    if agent_design == "qwen-spark":
+        return qwen_spark_session()
+    elif agent_design == "cascade":
         # return cascaded_session()
         raise NotImplementedError("Cascade session is currently disabled due to VAD model issues on images.")
     elif agent_design == "google-cartesia":
