@@ -4,7 +4,7 @@
 # Percentage threshold below which battery indicator flashes red
 low_threshold = 15
 # Polling interval in seconds for battery status
-poll_interval_secs = 1.0
+poll_interval_secs = 30.0
 
 [bag_recorder]
 # Polling interval in seconds for bag recording status
