@@ -3,6 +3,20 @@ import os
 import sys
 import argparse
 
+# livekit-agents 1.6.5 calls logger.trace() in its STT/turn-taking paths, but
+# the TRACE method is only registered by some CLI entrypoints. Without this
+# shim every user utterance kills the STT consumer (AttributeError), so the
+# agent speaks but never responds.
+_TRACE_LEVEL = 5
+if not hasattr(logging.Logger, "trace"):
+    logging.addLevelName(_TRACE_LEVEL, "TRACE")
+
+    def _trace(self, message, *args, **kwargs):
+        if self.isEnabledFor(_TRACE_LEVEL):
+            self._log(_TRACE_LEVEL, message, args, **kwargs)
+
+    logging.Logger.trace = _trace
+
 logging.getLogger("livekit.agents").setLevel(logging.WARNING)
 logging.getLogger("livekit").setLevel(logging.WARNING)
 
@@ -30,10 +44,11 @@ load_dotenv(".env.local")
 logger = logging.getLogger("agent")
 
 
-# AGENT_DESIGN = "cascade"
-AGENT_DESIGN = "openai-cartesia"
-# AGENT_DESIGN = "google-cartesia"
-# AGENT_DESIGN = "openai-realtime"
+# Brain selection. Override without editing code via .env.local or the
+# systemd unit, e.g. PUPSTER_AGENT_DESIGN=openai-cartesia
+# Designs: qwen-spark (local Spark LLM, cloud fallback if OPENAI_API_KEY set),
+#          openai-cartesia, openai-realtime, google-cartesia
+AGENT_DESIGN = os.getenv("PUPSTER_AGENT_DESIGN", "qwen-spark")
 
 
 def prewarm(proc: JobProcess):
