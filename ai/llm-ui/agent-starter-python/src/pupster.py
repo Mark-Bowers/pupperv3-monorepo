@@ -214,14 +214,17 @@ def gemini_cartesia_session():
 
 
 def spark_llm():
-    # Local LLM on the DGX Spark (Ollama, OpenAI-compatible API).
+    # Local LLM on a LAN inference server (Ollama, OpenAI-compatible API).
     # gpt-oss handles this agent's 14-tool schema reliably; qwen3.6:35b-a3b
     # stops emitting tool calls beyond ~7 tools (verified by bisection
     # against a captured live request, 2026-07-18) and role-plays tricks
     # instead. Keep reasoning effort low for conversational latency.
+    # Point at your own server via .env.local:
+    #   PUPSTER_LOCAL_LLM_URL=http://<host>:11434/v1
+    #   PUPSTER_LOCAL_LLM_MODEL=<ollama model name>
     return openai.LLM(
-        model="gpt-oss:latest",
-        base_url="http://192.168.68.54:11434/v1",
+        model=os.getenv("PUPSTER_LOCAL_LLM_MODEL", "gpt-oss:latest"),
+        base_url=os.getenv("PUPSTER_LOCAL_LLM_URL", "http://192.168.68.54:11434/v1"),
         api_key="ollama",
         reasoning_effort="low",
     )
