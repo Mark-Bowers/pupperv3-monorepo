@@ -1,0 +1,55 @@
+#!/bin/bash
+# say - speak text through the Pupper's speaker.
+# Uses the Cartesia "Dug" voice (same as the Pupster LiveKit agent);
+# falls back to offline espeak-ng if the API key or network is unavailable.
+#
+# Usage: say <text to speak>
+
+set -u
+
+TEXT="$*"
+if [ -z "$TEXT" ]; then
+    echo "usage: say <text to speak>" >&2
+    exit 1
+fi
+
+# Reach the pi user's PipeWire even from an SSH session
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+
+SINK="alsa_output.platform-soc_107c000000_sound.stereo-fallback"
+VOICE_ID="e7651bee-f073-4b79-9156-eff1f8ae4fd9"   # "Dug" - Pupster's voice
+ENV_FILE="/home/pi/pupperv3-monorepo/ai/llm-ui/agent-starter-python/.env.local"
+
+OUT="$(mktemp /tmp/say-XXXXXX.wav)"
+trap 'rm -f "$OUT"' EXIT
+
+KEY="$(grep -m1 '^CARTESIA_API_KEY' "$ENV_FILE" 2>/dev/null | cut -d'"' -f2)"
+
+cartesia_tts() {
+    [ -n "$KEY" ] || return 1
+    local payload
+    payload="$(python3 - "$TEXT" "$VOICE_ID" <<'PY'
+import json, sys
+print(json.dumps({
+    "model_id": "sonic-3",
+    "transcript": sys.argv[1],
+    "voice": {"mode": "id", "id": sys.argv[2]},
+    "output_format": {"container": "wav", "encoding": "pcm_s16le", "sample_rate": 44100},
+}))
+PY
+)"
+    curl -s --max-time 15 -X POST https://api.cartesia.ai/tts/bytes \
+        -H "X-API-Key: $KEY" \
+        -H "Cartesia-Version: 2024-06-10" \
+        -H "Content-Type: application/json" \
+        -d "$payload" -o "$OUT" || return 1
+    # On error Cartesia returns JSON, not audio - verify we got a wav
+    file "$OUT" | grep -q "WAVE audio"
+}
+
+if ! cartesia_tts; then
+    echo "(Cartesia unavailable - using offline espeak-ng voice)" >&2
+    espeak-ng -w "$OUT" "$TEXT" || exit 1
+fi
+
+exec paplay --device="$SINK" "$OUT"

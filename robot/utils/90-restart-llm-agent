@@ -1,0 +1,14 @@
+#!/bin/bash
+# NetworkManager dispatcher hook: restart the voice agent when WiFi comes up
+# on a (possibly new) network. The agent's cloud websockets (Deepgram STT,
+# Cartesia TTS, LLM) die silently on a route change and take ~2 minutes to
+# self-detect (Deepgram NET-0001); an immediate restart makes Pupper usable
+# seconds after joining a network, and the startup greeting doubles as an
+# audible "online" signal.
+interface="$1"
+action="$2"
+
+if [ "$interface" = "wlan0" ] && [ "$action" = "up" ]; then
+    logger "90-restart-llm-agent: wlan0 up, restarting voice agent"
+    systemctl restart llm-agent
+fi
