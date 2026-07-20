@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 from pathlib import Path
@@ -20,59 +21,59 @@ import subprocess
 logger = logging.getLogger("agent")
 
 
-# Animation name mapping with descriptions for the AI assistant
+# Animation name mapping with descriptions for the AI assistant.
+# Descriptions merged from Teresa's bumblebee-pupper overlay (richer, with
+# usage triggers); superman/pee/upward_dog recordings are unique to this
+# robot. Her lie_down/sit tricks are omitted - those CSVs exist only on her
+# robot.
 ANIMATION_NAMES = {
     "twerk": {
         "csv_name": "twerk_recording_2025-09-04_16-14-51_0",
-        "description": "Makes the robot twerk by moving its hips in a rhythmic motion",
+        "description": "Twerk / dance: the robot bounces and wiggles its hips rhythmically. Use when the user says 'twerk', 'dance', 'wiggle', 'shake your booty', or asks the robot to dance.",
     },
     "lie_sit_lie": {
         "csv_name": "lie_sit_lie_recording_2025-09-03_12-44-08_0",
-        "description": "From lying position, sits up and then lies back down",
+        "description": "Sit up and lie back down. IMPORTANT: only works when the robot is ALREADY LYING DOWN. If the robot is standing, do NOT try to lie down by playing other animations - instead tell the user the robot needs to be lying down first and ask them to help, then stop.",
     },
     "stand_sit_shake_sit_stand": {
         "csv_name": "stand_sit_shake_sit_stand_recording_2025-09-03_12-47-18_0",
-        "description": "From standing, sits down, shakes body, sits, then stands back up",
+        "description": "Shake hands / give paw. The robot sits, lifts its front paw to shake hands (gives its paw), then stands back up. Use this whenever the user says 'shake', 'shake hands', 'shake my hand', 'give me your paw', 'give paw', 'paw', or asks the robot to shake.",
     },
     "upward_dog": {
         "csv_name": "upward_dog_recording_2025-10-22_17-17-07",
-        "description": "From lying position, moves into an upward dog yoga pose and back down to lying",
+        "description": "Upward-dog yoga pose from a lying position, then back down to lying. IMPORTANT: only works when the robot is ALREADY LYING DOWN.",
     },
-    # "stand_sit_stand": {
-    #     "csv_name": "stand_sit_stand_recording_2025-09-03_12-46-36_0",
-    #     "description": "From standing position, sits down and then stands back up",
-    # },
     "superman": {
         "csv_name": "superman_recording_2025-10-22_17-47-41",
-        "description": "From lying position, lifts arms and legs off the ground to mimic flying like Superman",
+        "description": "Superman pose: from lying down, lifts arms and legs off the ground to mimic flying like Superman. Use when the user says 'superman', 'fly', or 'superman pose'. Works best when the robot is lying down.",
     },
     "pee": {
         "csv_name": "pee2_recording_2025-10-22_17-41-45",
-        "description": "From standing position, lifts leg and mimics urination motion",
+        "description": "From standing position, lifts leg and mimics urination motion. Use when the user says 'pee', 'go potty', or similar. Make sure walking is activated before and after this animation to avoid falling over.",
     },
     "lie_downward_dog": {
         "csv_name": "lie_downward_dog_recording_2025-09-04_16-08-00_0",
-        "description": "From lying position, moves into a downward dog yoga pose",
+        "description": "Downward-dog stretch from a lying position. IMPORTANT: only works when the robot is ALREADY LYING DOWN. If the robot is standing, do NOT try to lie down by playing other animations - instead tell the user the robot needs to be lying down first and ask them to help, then stop.",
     },
-    # "stand_downward_dog": {
-    #     "csv_name": "stand_downward_dog_recording_2025-09-04_16-09-51_0",
-    #     "description": "From standing position, moves into a downward dog yoga pose",
-    # },
-    # "push_up": {
-    #     "csv_name": "push_up_recording_2025-09-04_16-11-34_0",
-    #     "description": "From standing position, performs a push-up motion by lowering and raising the body",
-    # },
+    "stand_downward_dog": {
+        "csv_name": "stand_downward_dog_recording_2025-09-04_16-09-51_0",
+        "description": "Stretch / downward dog: from standing, stretches into a downward-dog yoga pose. Use when the user says 'stretch', 'do a stretch', 'downward dog', 'yoga', or asks the robot to stretch.",
+    },
+    "push_up": {
+        "csv_name": "push_up_recording_2025-09-04_16-11-34_0",
+        "description": "Push-up: from standing, lowers and raises its body like doing push-ups. Use when the user says 'push-up', 'pushup', 'do push-ups', 'exercise', 'work out', or 'give me push-ups'.",
+    },
     "sneeze": {
         "csv_name": "sneeze_recording_2025-09-04_16-13-54_0",
-        "description": "From standing position, mimics a sneezing motion with head and body movement",
+        "description": "Sneeze: from standing, mimics a sneeze with a head-and-body motion. Use when the user says 'sneeze' or 'achoo'.",
     },
     "spider": {
         "csv_name": "spider_recording_2025-09-04_16-12-38_0",
-        "description": "From lying position, moves legs in a silly spider-like motion",
+        "description": "Spider: from standing, the robot gently lowers down and wiggles its legs in a silly spider-like motion, then stands back up. Use when the user says 'be a spider', 'spider', or 'do the spider'.",
     },
     "swim": {
         "csv_name": "swim_recording_2025-09-04_16-10-45_0",
-        "description": "From lying position, performs silly swimming motions with the legs",
+        "description": "Silly swimming leg motion. IMPORTANT: only works when the robot is ALREADY LYING DOWN. If the robot is standing, do NOT try to lie down by playing other animations - tell the user the robot needs to be lying down first, then stop. Use when the user says 'swim' AND the robot is already lying down.",
     },
 }
 
@@ -124,9 +125,42 @@ def get_animation_duration(csv_filename: str) -> float:
         return 0.1
 
 
+def get_current_voice():
+    """Read the active Cartesia voice ID from current_voice.txt.
+
+    Voice clones created with voice_demo.py write their ID here. Falls back
+    to the default voice if the file is missing or unreadable, so a bad or
+    absent file can never break the robot's speech.
+    """
+    fallback = "e7651bee-f073-4b79-9156-eff1f8ae4fd9"
+    try:
+        voice_file = Path(__file__).resolve().parent.parent / "current_voice.txt"
+        voice_id = voice_file.read_text().strip()
+        if voice_id:
+            return voice_id
+        return fallback
+    except Exception:
+        return fallback
+
+
 def load_system_prompt():
-    """Load system prompt from file with robust error handling."""
-    path = Path(__file__).parent / "system_prompt.md"
+    """Load the persona's system prompt with robust error handling.
+
+    Persona is selected via PUPSTER_PERSONA in .env.local:
+      pupster   (default) -> system_prompt.md  (Nathan's spunky Pupster)
+      bumblebee           -> system_prompt_bumblebee.md  (Teresa's warm, wise
+                             Bumblebee persona)
+    Unknown values fall back to pupster with a logged warning.
+    """
+    persona = os.getenv("PUPSTER_PERSONA", "pupster").strip().lower()
+    prompt_files = {
+        "pupster": "system_prompt.md",
+        "bumblebee": "system_prompt_bumblebee.md",
+    }
+    if persona not in prompt_files:
+        logger.warning(f"Unknown PUPSTER_PERSONA '{persona}', using pupster")
+        persona = "pupster"
+    path = Path(__file__).parent / prompt_files[persona]
 
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -167,7 +201,7 @@ def load_system_prompt():
 #         # only english model supports keyterm boosting. in tests, not necessary for pupster. pupper intepreted as pepper
 #         # stt=deepgram.STT(model="nova-3", language="en", keyterms=["pupster", "pupper"]),
 #         # best dog: e7651bee-f073-4b79-9156-eff1f8ae4fd9
-#         tts=cartesia.TTS(voice="e7651bee-f073-4b79-9156-eff1f8ae4fd9"),
+#         tts=cartesia.TTS(voice=get_current_voice(), model="sonic-3", speed=1.03, emotion=["positivity:high", "curiosity"]),
 #         # spanish
 #         # tts=cartesia.TTS(voice="79743797-2087-422f-8dc7-86f9efca85f1"),
 #         turn_detection=MultilingualModel(),
@@ -196,7 +230,7 @@ def openairealtime_cartesia_session():
                 interrupt_response=True,
             ),
         ),
-        tts=cartesia.TTS(voice="e7651bee-f073-4b79-9156-eff1f8ae4fd9", model="sonic-3"),
+        tts=cartesia.TTS(voice=get_current_voice(), model="sonic-3", speed=1.03, emotion=["positivity:high", "curiosity"]),
     )
 
 
@@ -209,7 +243,7 @@ def gemini_cartesia_session():
             instructions="",
             modalities=["text"],
         ),
-        tts=cartesia.TTS(voice="e7651bee-f073-4b79-9156-eff1f8ae4fd9"),
+        tts=cartesia.TTS(voice=get_current_voice(), model="sonic-3", speed=1.03, emotion=["positivity:high", "curiosity"]),
     )
 
 
@@ -247,7 +281,7 @@ def qwen_spark_session():
     return AgentSession(
         llm=brain,
         stt=deepgram.STT(model="nova-3", language="multi"),
-        tts=cartesia.TTS(voice="e7651bee-f073-4b79-9156-eff1f8ae4fd9", model="sonic-3"),
+        tts=cartesia.TTS(voice=get_current_voice(), model="sonic-3", speed=1.03, emotion=["positivity:high", "curiosity"]),
         vad=silero.VAD.load(),
         max_tool_steps=20,
     )
@@ -291,9 +325,61 @@ class PupsterAgent(Agent):
             logger.error(f"Failed to create empty file at {tmp_file_path}: {e}")
 
         chat_ctx = self.chat_ctx.copy()
-        chat_ctx.add_message(role="system", content="Say hi to the user and introduce yourself as Pupster.")
+        # Persona-neutral: the system prompt defines the robot's name.
+        chat_ctx.add_message(role="system", content="Say hi to the user and introduce yourself by name, in your own voice.")
         await self.update_chat_ctx(chat_ctx)
         self.session.generate_reply()
+
+        # Start the background thermal monitor (proactive "I'm hot" warnings).
+        # Ported from Teresa's bumblebee-pupper overlay, persona-neutral.
+        self._thermal_warned = {"warn": False, "urgent": False}
+        asyncio.create_task(self._thermal_monitor())
+        logger.info("Thermal monitor task started")
+
+    async def _thermal_monitor(self):
+        """Background loop: poll CPU temp and proactively warn (in-character) when hot.
+        Warns once per threshold crossing; resets when cooled so it can warn again later."""
+        WARN_C = 75.0    # getting warm - might need to rest soon
+        URGENT_C = 80.0  # overheating - recommend resting / shutting down
+        RESET_C = 68.0   # cooled back down - clear warnings
+        POLL_SEC = 20
+
+        while True:
+            try:
+                raw = Path("/sys/class/thermal/thermal_zone0/temp").read_text().strip()
+                temp_c = int(raw) / 1000.0
+
+                if temp_c >= URGENT_C and not self._thermal_warned["urgent"]:
+                    self._thermal_warned["urgent"] = True
+                    self._thermal_warned["warn"] = True
+                    logger.warning(f"[thermal] URGENT threshold crossed at {temp_c:.1f}C - warning user")
+                    chat_ctx = self.chat_ctx.copy()
+                    chat_ctx.add_message(role="system", content=(
+                        f"SYSTEM ALERT: Your CPU temperature is {temp_c:.0f} degrees Celsius, which is dangerously hot. "
+                        "Urgently but warmly tell the user you're overheating and really need to rest now - "
+                        "recommend they let you shut down or power off soon so you can cool down. Stay in character."))
+                    await self.update_chat_ctx(chat_ctx)
+                    self.session.generate_reply()
+
+                elif temp_c >= WARN_C and not self._thermal_warned["warn"]:
+                    self._thermal_warned["warn"] = True
+                    logger.warning(f"[thermal] WARN threshold crossed at {temp_c:.1f}C - warning user")
+                    chat_ctx = self.chat_ctx.copy()
+                    chat_ctx.add_message(role="system", content=(
+                        f"SYSTEM ALERT: Your CPU temperature is {temp_c:.0f} degrees Celsius, which is getting warm. "
+                        "In your own voice, casually let the user know you're heating up a bit and might need "
+                        "to rest soon. Keep it light but genuine. Stay in character."))
+                    await self.update_chat_ctx(chat_ctx)
+                    self.session.generate_reply()
+
+                elif temp_c < RESET_C and (self._thermal_warned["warn"] or self._thermal_warned["urgent"]):
+                    logger.info(f"[thermal] Cooled to {temp_c:.1f}C - resetting warnings")
+                    self._thermal_warned = {"warn": False, "urgent": False}
+
+            except Exception as e:
+                logger.error(f"[thermal] monitor error: {e}")
+
+            await asyncio.sleep(POLL_SEC)
 
     # Waiting on openai and livekit to support images for realtime models
     # Would work for cascade models
@@ -461,6 +547,16 @@ Example:
         duration = get_animation_duration(actual_animation_name)
         logger.info(f"Queueing wait for {duration:.2f} seconds for animation {animation_name}")
         await self.tool_impl.queue_wait(duration)
+
+        # After the animation finishes, hand control back to the neural
+        # (walking) controller so the robot stands gracefully instead of
+        # locking up with stiff legs. (From Teresa's overlay; the lie_down
+        # exception is kept for when that animation is added.)
+        if animation_name != "lie_down":
+            logger.info("Queueing activate_walking after animation to return control to neural controller")
+            await self.tool_impl.queue_activate_walking()
+        else:
+            logger.info("lie_down animation: staying lying down, NOT re-activating walking")
 
         return result
 
