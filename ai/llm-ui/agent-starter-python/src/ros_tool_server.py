@@ -28,7 +28,7 @@ import os
 logger = logging.getLogger("ros_tool_server")
 AVAILABLE_CONTROLLERS = {
     "neural_controller",
-    "neural_controller_three_legged",
+    # "neural_controller_three_legged",  # disabled 2026-07-19 per Mark: not wanted
     "forward_kp_controller",
     "forward_position_controller",
     "forward_kd_controller",
@@ -250,6 +250,26 @@ class AnimationCommand(Command):
 
     async def execute(self, server: "RosToolServer") -> Tuple[bool, str]:
         try:
+            # SELF-HEAL: the animation controller's own switch to animation
+            # mode only succeeds from a healthy controller state (walking
+            # active). From a cold boot the kp/kd controllers hold a state the
+            # switch can't untangle and the animation plays into deactivated
+            # motors - Pupper narrates a trick that never happens. Activating
+            # walking first (which configures unconfigured controllers) makes
+            # animations work from any boot state. Costs a stand-up before
+            # lying-start animations; that matches the previously-working flow.
+            walking = server.current_walking_controller
+            if not is_controller_active(server, walking):
+                server.node.get_logger().info(
+                    f"Animation pre-flight: {walking} not active; activating walking first"
+                )
+                ok, activate_msg = await ActivateCommand().execute(server)
+                if not ok:
+                    return False, (
+                        "My motors aren't responding, so I can't do the "
+                        f"animation right now: {activate_msg}"
+                    )
+
             # Publish the animation name to the animation_controller_py topic
             # The animation_controller_py will handle controller switching automatically
             topic_name = f"/{ANIMATION_CONTROLLER_NAME}/animation_select"

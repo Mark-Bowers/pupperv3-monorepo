@@ -180,8 +180,14 @@ joy_util_node:
   ros__parameters:
     estop_index: 12
     estop_release_index: 9
+    # controller_names doubles as the e-stop's deactivate-everything list AND
+    # the positional map for switch buttons (button index i -> names[i]).
+    # Only one switch button is exposed: X (0) -> neural_controller (walking).
+    # Circle (1) used to select neural_controller_three_legged - removed
+    # 2026-07-19 per Mark (three-legged mode not wanted; kids pressing Circle
+    # mid-play was hijacking the controller state).
     controller_names: ["neural_controller", "neural_controller_three_legged", "forward_kp_controller", "forward_kd_controller", "forward_position_controller"]
-    switch_button_indices: [0, 1]
+    switch_button_indices: [0]
 
 # Forward command controllers for animation system
 forward_position_controller:
