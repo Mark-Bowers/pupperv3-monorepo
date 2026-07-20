@@ -6,6 +6,12 @@ Requires=user@1000.service
 [Service]
 Type=simple
 WorkingDirectory=/home/pi/pupperv3-monorepo/ai/llm-ui/agent-starter-python
+# Wait for REAL internet + DNS before starting (network-online.target fires
+# too early). From Teresa's overlay, with a bound added: give up after ~60s
+# and start anyway, so the agent still comes up at venues with no internet
+# (the local-LLM design and espeak fallback work offline).
+ExecStartPre=/bin/sh -c 'for i in $(seq 1 30); do ping -c1 -W2 8.8.8.8 >/dev/null 2>&1 && exit 0; echo waiting-for-internet; sleep 2; done; exit 0'
+ExecStartPre=/bin/sh -c 'for i in $(seq 1 10); do getent hosts api.openai.com >/dev/null 2>&1 && exit 0; echo waiting-for-dns; sleep 2; done; exit 0'
 ExecStart=/home/pi/pupperv3-monorepo/ai/llm-ui/agent-starter-python/run.sh
 Restart=always
 RestartSec=5
