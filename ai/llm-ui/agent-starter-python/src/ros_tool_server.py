@@ -263,7 +263,7 @@ class AnimationCommand(Command):
                 server.node.get_logger().info(
                     f"Animation pre-flight: {walking} not active; activating walking first"
                 )
-                ok, activate_msg = await ActivateCommand().execute(server)
+                ok, activate_msg = await ActivateWalkingCommand().execute(server)
                 if not ok:
                     return False, (
                         "My motors aren't responding, so I can't do the "
