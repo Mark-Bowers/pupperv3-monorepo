@@ -28,9 +28,9 @@ logger = logging.getLogger("agent")
 # robot. Her lie_down/sit tricks are omitted - those CSVs exist only on her
 # robot.
 ANIMATION_NAMES = {
-    "twerk": {
+    "wiggle": {
         "csv_name": "twerk_recording_2025-09-04_16-14-51_0",
-        "description": "Twerk / dance: the robot bounces and wiggles its hips rhythmically. Use when the user says 'twerk', 'dance', 'wiggle', 'shake your booty', or asks the robot to dance.",
+        "description": "A happy wiggle dance - the robot bounces and wiggles to a little beat. Use when the user says 'wiggle', 'dance', 'happy dance', 'boogie', or 'shake'. Also perform this if the user says 'twerk'. IMPORTANT: when YOU name, list, or offer this trick, always call it a 'dance' or a 'wiggle' - never say the word 'twerk' yourself.",
     },
     "lie_sit_lie": {
         "csv_name": "lie_sit_lie_recording_2025-09-03_12-44-08_0",
@@ -48,9 +48,9 @@ ANIMATION_NAMES = {
         "csv_name": "superman_recording_2025-10-22_17-47-41",
         "description": "Superman pose: from lying down, lifts arms and legs off the ground to mimic flying like Superman. Use when the user says 'superman', 'fly', or 'superman pose'. Works best when the robot is lying down.",
     },
-    "pee": {
+    "lift_leg": {
         "csv_name": "pee2_recording_2025-10-22_17-41-45",
-        "description": "From standing position, lifts leg and mimics urination motion. Use when the user says 'pee', 'go potty', or similar. Make sure walking is activated before and after this animation to avoid falling over.",
+        "description": "From a standing position, the robot lifts one leg. Use when the user says 'lift your leg' or 'lift my leg'. Also perform this if the user says 'pee', 'go potty', or similar. IMPORTANT: when YOU name, list, or offer this trick, always call it 'lift my leg' - never say 'pee' or 'potty' yourself. Make sure walking is activated before and after this animation to avoid falling over.",
     },
     "lie_downward_dog": {
         "csv_name": "lie_downward_dog_recording_2025-09-04_16-08-00_0",
@@ -585,10 +585,10 @@ Available animations:
 Args:
     animation_name (str): The name of the animation to play. Must be one of: {", ".join([f'"{name}"' for name in ANIMATION_NAMES.keys()])}
 
-    If doing the pee animation, make sure you activate walking before and after to avoid falling over!
+    If doing the "lift my leg" animation, make sure you activate walking before and after to avoid falling over!
 
 Example:
-    To make the robot twerk: queue_animation(animation_name="twerk")
+    To make the robot do a wiggle dance: queue_animation(animation_name="wiggle")
     To make the robot do a downward dog from lying position: queue_animation(animation_name="lie_downward_dog")
 """
     )
