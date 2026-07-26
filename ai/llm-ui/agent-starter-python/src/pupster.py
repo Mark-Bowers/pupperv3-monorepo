@@ -646,3 +646,15 @@ Example:
         Note that walking mode and following mode are not discernible from each other via this function.
         """
         return await self.tool_impl.check_mode()
+
+    @function_tool
+    async def rest(self, context: RunContext):
+        """Enter rest mode to save battery and cool down. Pauses your vision system (camera + person detection), which is your single biggest power draw and heat source. You can still hear and talk while resting - only your eyes turn off. Use when the user says 'rest', 'take a nap', 'take a break', 'go to sleep', 'power save', 'you can rest now', or when you'll be idle on your stand for a while. Call wake_up to see again."""
+        logger.info("FUNCTION CALL: rest()")
+        return await self.tool_impl.rest()
+
+    @function_tool
+    async def wake_up(self, context: RunContext):
+        """Exit rest mode and resume your vision system (camera + person detection) so you can see again. Use when the user says 'wake up', 'wake', 'you can look now', 'open your eyes', or wants you to see/follow them after you were resting."""
+        logger.info("FUNCTION CALL: wake_up()")
+        return await self.tool_impl.wake()

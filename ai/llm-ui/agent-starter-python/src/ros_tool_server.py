@@ -24,6 +24,7 @@ import gemini_utils
 import ros_image_utils
 import fisheye_utils
 import os
+import subprocess
 
 logger = logging.getLogger("ros_tool_server")
 AVAILABLE_CONTROLLERS = {
@@ -588,6 +589,40 @@ class RosToolServer():
             return fut.result().success, fut.result().message
         else:
             return False, "Failed to call deactivate_person_following service"
+
+    # --- Rest mode: pause/resume the vision stack -------------------------
+    # SIGSTOP freezes the camera + Hailo person-detection processes to ~0% CPU
+    # without killing them (neither node has respawn set, and a stopped process
+    # stays in the table), cutting the robot's biggest idle power draw and its
+    # heat on the stand. SIGCONT resumes instantly. Matched by unique path
+    # substring; sudo since the nodes may not run as this user. pkill returns 1
+    # when nothing matched (e.g. already paused) - treated as non-fatal.
+    _VISION_PROCS = ["lib/hailo/hailo_detection", "camera_ros/lib/camera_ros/camera_node"]
+
+    def _signal_vision(self, sig: str) -> bool:
+        ok = True
+        for pat in self._VISION_PROCS:
+            r = subprocess.run(
+                ["sudo", "pkill", f"-{sig}", "-f", pat], capture_output=True, text=True
+            )
+            if r.returncode not in (0, 1):
+                ok = False
+                self.node.get_logger().error(f"pkill -{sig} '{pat}' failed: {r.stderr.strip()}")
+        return ok
+
+    async def rest(self) -> Tuple[bool, str]:
+        """Pause the vision stack (camera + Hailo) to save power and cool down."""
+        self.node.get_logger().info("REST: pausing vision stack (camera + hailo)")
+        if self._signal_vision("STOP"):
+            return True, "Resting now - I closed my eyes to save energy and cool down. Say 'wake up' when you want me to see again."
+        return False, "I had trouble settling down to rest."
+
+    async def wake(self) -> Tuple[bool, str]:
+        """Resume the vision stack after rest."""
+        self.node.get_logger().info("WAKE: resuming vision stack (camera + hailo)")
+        if self._signal_vision("CONT"):
+            return True, "I'm awake - my eyes are back on!"
+        return False, "I had trouble waking my eyes back up."
 
     async def analyze_camera_image(self, prompt: str, context: Any) -> Tuple[bool, str]:
         self.node.get_logger().info(f"FUNCTION CALLED: analyze_camera_image(prompt={prompt})")
