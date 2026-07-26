@@ -611,17 +611,38 @@ class RosToolServer():
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
         )
 
+    def _screen_blocking(self, on: bool) -> None:
+        # Runs in a worker thread (see _screen). Uses a CLEAN minimal env - the
+        # agent's full environment made wlopm hang; only these vars are needed -
+        # plus a hard timeout so a slow compositor can never wedge the thread.
+        subprocess.run(
+            ["wlopm", "--on" if on else "--off", "*"],
+            env={"XDG_RUNTIME_DIR": "/run/user/1000", "WAYLAND_DISPLAY": "wayland-0",
+                 "PATH": "/usr/bin:/bin"},
+            capture_output=True, text=True, timeout=5,
+        )
+
+    async def _screen(self, on: bool) -> None:
+        """Power the front-panel display on/off. Off the event loop via a thread
+        so it can NEVER block the agent; best-effort, failure is non-fatal."""
+        try:
+            await asyncio.to_thread(self._screen_blocking, on)
+        except Exception as e:
+            self.node.get_logger().warning(f"screen {'on' if on else 'off'} failed: {e}")
+
     async def rest(self) -> Tuple[bool, str]:
-        """Pause the vision stack (camera + Hailo) to save battery."""
-        self.node.get_logger().info("REST: pausing vision stack")
+        """Pause the vision stack and blank the screen to save battery."""
+        self.node.get_logger().info("REST: pausing vision stack + blanking screen")
         self._signal_vision("STOP")
-        return True, "Resting now - I closed my eyes to save energy. Say 'wake up' when you want me back."
+        await self._screen(False)
+        return True, "Resting now - I closed my eyes and turned off my screen to save energy. Say 'wake up' when you want me back."
 
     async def wake(self) -> Tuple[bool, str]:
-        """Resume the vision stack after rest."""
-        self.node.get_logger().info("WAKE: resuming vision stack")
+        """Resume the vision stack and turn the screen back on."""
+        self.node.get_logger().info("WAKE: resuming vision stack + screen on")
         self._signal_vision("CONT")
-        return True, "I'm awake - my eyes are back on!"
+        await self._screen(True)
+        return True, "I'm awake - my eyes and screen are back on!"
 
     async def check_battery(self) -> Tuple[bool, str]:
         """Report the latest battery percentage. Reads the GUI's journal (the
