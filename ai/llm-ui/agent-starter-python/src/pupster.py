@@ -723,6 +723,24 @@ Example:
         return await self.tool_impl.check_battery()
 
     @function_tool
+    async def which_network(self, context: RunContext):
+        """Report which WiFi network you're currently connected to. Use when the user asks 'which network are you on', 'what wifi are you on', 'are you connected to the internet', etc."""
+        logger.info("FUNCTION CALL: which_network()")
+        return await self.tool_impl.get_wifi_network()
+
+    @function_tool
+    async def list_networks(self, context: RunContext):
+        """List the WiFi networks you can currently see nearby. Use when the user asks 'what networks are available', 'what wifi can you see', or as a helpful step before switching networks."""
+        logger.info("FUNCTION CALL: list_networks()")
+        return await self.tool_impl.list_wifi_networks()
+
+    @function_tool
+    async def change_network(self, context: RunContext, network_name: str, password: str = ""):
+        """Connect to a WiFi network. For a network you've joined before, leave password empty. For a NEW network, include the password the user gave you. Use when the user says 'change network to X', 'connect to wifi X', 'join the X network'. Note: switching networks can briefly interrupt your internet connection. If you're unsure you heard the network name or password correctly, read it back to the user to confirm before connecting."""
+        logger.info(f"FUNCTION CALL: change_network({network_name})")
+        return await self.tool_impl.connect_wifi(network_name, password)
+
+    @function_tool
     async def set_personality(self, context: RunContext, personality: str):
         """Switch your personality. Options: 'pupster' (spunky, chaotic, a little snarky - the original) or 'bumblebee' (warm, wise, gentle). Use when the user says things like 'be Bumblebee', 'switch to Pupster', 'change your personality', or 'become the other one'. You briefly restart (a few seconds) and then greet them in the new personality."""
         logger.info(f"FUNCTION CALL: set_personality({personality})")

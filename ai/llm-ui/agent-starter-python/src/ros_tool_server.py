@@ -665,6 +665,48 @@ class RosToolServer():
             return True, f"My battery is at {pct} percent."
         return False, "I couldn't read my battery level right now."
 
+    # --- WiFi network tools (all off the event loop via asyncio.to_thread) ---
+    async def get_wifi_network(self) -> Tuple[bool, str]:
+        def _read():
+            r = subprocess.run(
+                ["sh", "-c", "nmcli -t -f active,ssid dev wifi | grep '^yes:' | head -1 | cut -d: -f2"],
+                capture_output=True, text=True, timeout=10,
+            )
+            return r.stdout.strip()
+        ssid = await asyncio.to_thread(_read)
+        if ssid:
+            return True, f"I'm connected to the WiFi network called {ssid}."
+        return False, "I'm not connected to any WiFi network right now."
+
+    async def list_wifi_networks(self) -> Tuple[bool, str]:
+        def _read():
+            r = subprocess.run(
+                ["sh", "-c",
+                 "nmcli -t -f ssid,signal dev wifi | grep -v '^:' | sort -t: -k2 -rn | "
+                 "awk -F: '!seen[$1]++{print $1}' | head -8"],
+                capture_output=True, text=True, timeout=20,
+            )
+            return r.stdout.strip()
+        out = await asyncio.to_thread(_read)
+        ssids = [s for s in out.splitlines() if s]
+        if ssids:
+            return True, "I can see these WiFi networks: " + ", ".join(ssids) + "."
+        return False, "I couldn't find any WiFi networks right now."
+
+    async def connect_wifi(self, ssid: str, password: str = "") -> Tuple[bool, str]:
+        def _connect():
+            if password:
+                cmd = ["sudo", "nmcli", "device", "wifi", "connect", ssid, "password", password]
+            else:
+                cmd = ["sudo", "nmcli", "connection", "up", ssid]
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=45)
+            return r.returncode, (r.stdout + r.stderr).strip()
+        self.node.get_logger().info(f"connect_wifi: {ssid} (pw={'yes' if password else 'no'})")
+        rc, msg = await asyncio.to_thread(_connect)
+        if rc == 0:
+            return True, f"I connected to {ssid}!"
+        return False, f"I couldn't connect to {ssid}. {msg[:140]}"
+
     async def analyze_camera_image(self, prompt: str, context: Any) -> Tuple[bool, str]:
         self.node.get_logger().info(f"FUNCTION CALLED: analyze_camera_image(prompt={prompt})")
         start_time = time.time()
