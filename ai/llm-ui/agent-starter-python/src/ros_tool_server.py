@@ -599,45 +599,29 @@ class RosToolServer():
     # when nothing matched (e.g. already paused) - treated as non-fatal.
     _VISION_PROCS = ["lib/hailo/hailo_detection", "camera_ros/lib/camera_ros/camera_node"]
 
-    def _signal_vision(self, sig: str) -> bool:
-        ok = True
-        for pat in self._VISION_PROCS:
-            r = subprocess.run(
-                ["sudo", "pkill", f"-{sig}", "-f", pat], capture_output=True, text=True
-            )
-            if r.returncode not in (0, 1):
-                ok = False
-                self.node.get_logger().error(f"pkill -{sig} '{pat}' failed: {r.stderr.strip()}")
-        return ok
-
-    def _screen(self, on: bool) -> None:
-        """Power the front-panel display output on/off via wlopm (Wayland).
-        Best-effort: a display failure must never block the vision pause."""
-        try:
-            subprocess.run(
-                ["wlopm", "--on" if on else "--off", "*"],
-                env={**os.environ, "XDG_RUNTIME_DIR": "/run/user/1000", "WAYLAND_DISPLAY": "wayland-0"},
-                capture_output=True, text=True, timeout=8,
-            )
-        except Exception as e:
-            self.node.get_logger().warning(f"screen power {'on' if on else 'off'} failed: {e}")
+    def _signal_vision(self, sig: str) -> None:
+        # Fire-and-forget: launch a detached shell that signals both vision
+        # processes, and return immediately. NEVER call a blocking subprocess
+        # inside the async tool - a slow/hung child (e.g. an external command
+        # that can't reach its socket) would freeze the agent's event loop and
+        # the robot stops responding entirely. Detaching makes rest/wake safe.
+        cmd = "; ".join(f"sudo pkill -{sig} -f '{p}'" for p in self._VISION_PROCS)
+        subprocess.Popen(
+            ["sh", "-c", cmd],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
+        )
 
     async def rest(self) -> Tuple[bool, str]:
-        """Pause the vision stack (camera + Hailo) and blank the screen to save power."""
-        self.node.get_logger().info("REST: pausing vision stack + blanking screen")
-        vision_ok = self._signal_vision("STOP")
-        self._screen(False)
-        if vision_ok:
-            return True, "Resting now - I closed my eyes and dimmed my screen to save energy. Say 'wake up' when you want me back."
-        return False, "I had trouble settling down to rest."
+        """Pause the vision stack (camera + Hailo) to save battery."""
+        self.node.get_logger().info("REST: pausing vision stack")
+        self._signal_vision("STOP")
+        return True, "Resting now - I closed my eyes to save energy. Say 'wake up' when you want me back."
 
     async def wake(self) -> Tuple[bool, str]:
-        """Resume the vision stack and turn the screen back on."""
-        self.node.get_logger().info("WAKE: resuming vision stack + screen on")
-        self._screen(True)
-        if self._signal_vision("CONT"):
-            return True, "I'm awake - my eyes and screen are back on!"
-        return False, "I had trouble waking my eyes back up."
+        """Resume the vision stack after rest."""
+        self.node.get_logger().info("WAKE: resuming vision stack")
+        self._signal_vision("CONT")
+        return True, "I'm awake - my eyes are back on!"
 
     async def analyze_camera_image(self, prompt: str, context: Any) -> Tuple[bool, str]:
         self.node.get_logger().info(f"FUNCTION CALLED: analyze_camera_image(prompt={prompt})")
