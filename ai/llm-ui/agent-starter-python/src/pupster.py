@@ -735,10 +735,10 @@ Example:
         return await self.tool_impl.list_wifi_networks()
 
     @function_tool
-    async def change_network(self, context: RunContext, network_name: str, password: str = ""):
-        """Connect to a WiFi network. For a network you've joined before, leave password empty. For a NEW network, include the password the user gave you. Use when the user says 'change network to X', 'connect to wifi X', 'join the X network'. Note: switching networks can briefly interrupt your internet connection. If you're unsure you heard the network name or password correctly, read it back to the user to confirm before connecting."""
+    async def change_network(self, context: RunContext, network_name: str):
+        """Switch to a WiFi network the robot already knows (one set up previously). Use when the user says 'switch to network X', 'connect to X', 'use the X network'. You can ONLY join networks already saved on the robot - a brand-new network with a password must be added from a terminal, because passwords are never handled by voice (they would be sent to the cloud). If a network isn't known yet, tell the user to add it from a terminal first. Note: switching networks can briefly interrupt your internet connection."""
         logger.info(f"FUNCTION CALL: change_network({network_name})")
-        return await self.tool_impl.connect_wifi(network_name, password)
+        return await self.tool_impl.connect_wifi(network_name)
 
     @function_tool
     async def set_personality(self, context: RunContext, personality: str):

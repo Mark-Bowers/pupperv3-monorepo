@@ -693,19 +693,24 @@ class RosToolServer():
             return True, "I can see these WiFi networks: " + ", ".join(ssids) + "."
         return False, "I couldn't find any WiFi networks right now."
 
-    async def connect_wifi(self, ssid: str, password: str = "") -> Tuple[bool, str]:
+    async def connect_wifi(self, ssid: str) -> Tuple[bool, str]:
+        # Saved networks only - no password path. Passwords are never taken by
+        # voice (they'd be sent to the cloud STT); new networks are added from a
+        # terminal with nmcli. `connection up` activates an existing profile.
         def _connect():
-            if password:
-                cmd = ["sudo", "nmcli", "device", "wifi", "connect", ssid, "password", password]
-            else:
-                cmd = ["sudo", "nmcli", "connection", "up", ssid]
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=45)
+            r = subprocess.run(
+                ["sudo", "nmcli", "connection", "up", ssid],
+                capture_output=True, text=True, timeout=45,
+            )
             return r.returncode, (r.stdout + r.stderr).strip()
-        self.node.get_logger().info(f"connect_wifi: {ssid} (pw={'yes' if password else 'no'})")
+        self.node.get_logger().info(f"connect_wifi (saved profile): {ssid}")
         rc, msg = await asyncio.to_thread(_connect)
         if rc == 0:
             return True, f"I connected to {ssid}!"
-        return False, f"I couldn't connect to {ssid}. {msg[:140]}"
+        return False, (
+            f"I couldn't connect to {ssid} - it may not be a network I've been "
+            f"set up for yet. New networks have to be added from a terminal."
+        )
 
     async def analyze_camera_image(self, prompt: str, context: Any) -> Tuple[bool, str]:
         self.node.get_logger().info(f"FUNCTION CALLED: analyze_camera_image(prompt={prompt})")
