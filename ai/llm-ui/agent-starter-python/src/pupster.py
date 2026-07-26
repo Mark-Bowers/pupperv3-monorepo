@@ -729,11 +729,18 @@ Example:
 
     @function_tool
     async def set_voice(self, context: RunContext, voice_name: str):
-        """Switch your speaking voice. Known voices: 'dug' (your default dog voice), plus any custom voices cloned in the voice demo (for example 'mark'). Use when the user says 'talk like Mark', 'use your Dug voice', 'change your voice', or 'sound like <name>'. You briefly restart (a few seconds) to change your voice."""
+        """Switch your speaking voice instantly. Known voices: 'dug' (your default dog voice), plus any custom voices cloned in the voice demo (for example 'mark'). Use when the user says 'talk like Mark', 'use your Dug voice', 'change your voice', or 'sound like <name>'. The change is immediate - your very next words are in the new voice."""
         logger.info(f"FUNCTION CALL: set_voice({voice_name})")
         vid = resolve_voice_id(voice_name)
         if vid is None:
             return f"I don't have a voice called '{voice_name}'. I have my Dug voice, plus any you've cloned in the voice demo."
-        set_voice_file(vid)
-        _schedule_agent_restart()
-        return f"Switching to the {voice_name} voice - one moment while I change!"
+        set_voice_file(vid)  # persist so a future restart keeps this voice
+        # Live switch on the running session's TTS - no restart, so the very
+        # next spoken words (this confirmation) are already in the new voice.
+        try:
+            self.session.tts.update_options(voice=vid)
+            return f"There - I'm using the {voice_name} voice now! How do I sound?"
+        except Exception as e:
+            logger.warning(f"live voice switch failed ({e}); falling back to restart")
+            _schedule_agent_restart()
+            return f"Switching to the {voice_name} voice - give me just a moment!"
