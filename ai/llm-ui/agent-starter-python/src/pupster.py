@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import os
 from pathlib import Path
@@ -141,6 +142,56 @@ def get_current_voice():
         return fallback
     except Exception:
         return fallback
+
+
+# --- Live persona / voice switching (voice commands) ----------------------
+# Both apply on the next agent start, so the switch tools write the new state
+# and schedule a detached restart. The restart is delayed a few seconds so the
+# spoken "switching..." confirmation plays first, and detached (new session) so
+# it survives the agent being torn down.
+_VALID_PERSONAS = {"pupster", "bumblebee"}
+_DUG_VOICE_ID = "e7651bee-f073-4b79-9156-eff1f8ae4fd9"
+_BUILTIN_VOICES = {"dug": _DUG_VOICE_ID, "default": _DUG_VOICE_ID, "bumblebee": _DUG_VOICE_ID}
+
+
+def _pkg_dir() -> Path:
+    return Path(__file__).resolve().parent.parent  # agent-starter-python/
+
+
+def _schedule_agent_restart(delay_secs: int = 6) -> None:
+    subprocess.Popen(
+        ["nohup", "sh", "-c", f"sleep {delay_secs}; sudo systemctl restart llm-agent"],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
+    )
+
+
+def set_persona_env(persona: str) -> None:
+    env_path = _pkg_dir() / ".env.local"
+    lines = []
+    if env_path.exists():
+        lines = [l for l in env_path.read_text().splitlines() if not l.startswith("PUPSTER_PERSONA")]
+    lines.append(f"PUPSTER_PERSONA={persona}")
+    env_path.write_text("\n".join(lines) + "\n")
+
+
+def resolve_voice_id(name: str):
+    """Map a spoken voice name to a Cartesia voice ID: built-ins + the
+    voices.json library that voice_demo.py maintains. Returns None if unknown."""
+    key = name.strip().lower()
+    if key in _BUILTIN_VOICES:
+        return _BUILTIN_VOICES[key]
+    try:
+        lib = json.loads((_pkg_dir() / "voices.json").read_text())
+    except Exception:
+        lib = {}
+    for saved_name, vid in lib.items():
+        if saved_name.strip().lower() == key:
+            return vid
+    return None
+
+
+def set_voice_file(voice_id: str) -> None:
+    (_pkg_dir() / "current_voice.txt").write_text(voice_id + "\n")
 
 
 def load_system_prompt():
@@ -345,9 +396,15 @@ class PupsterAgent(Agent):
         # 75C is normal warm operation, not a problem - Teresa's original
         # 75/80C thresholds cried wolf every few minutes on the stand. Warn only
         # when genuinely past the fan's full-speed point, urgent near throttle.
-        WARN_C = 83.0    # fan already maxed and still climbing - worth a heads-up
-        URGENT_C = 88.0  # approaching sustained throttle - genuinely too hot
-        RESET_C = 78.0   # cooled back to normal-warm - clear warnings
+        # Measured 2026-07-25: this robot runs at ~84C under normal load with the
+        # fan already at max (10000+ RPM, cooling state 4/4). The Pi 5 soft-caps
+        # around 85C and only hard-throttles higher; critical trip is 110C. It's
+        # run entire batteries at 84C without throttling or crashing. So warn only
+        # if temp climbs well ABOVE the normal maxed-fan point - that indicates a
+        # real problem (e.g. fan failure) rather than ordinary hard work.
+        WARN_C = 92.0    # well past normal - something is wrong (likely fan)
+        URGENT_C = 100.0 # approaching the 110C critical trip - genuinely urgent
+        RESET_C = 88.0
         POLL_SEC = 20
 
         while True:
@@ -658,3 +715,25 @@ Example:
         """Exit rest mode and resume your vision system (camera + person detection) so you can see again. Use when the user says 'wake up', 'wake', 'you can look now', 'open your eyes', or wants you to see/follow them after you were resting."""
         logger.info("FUNCTION CALL: wake_up()")
         return await self.tool_impl.wake()
+
+    @function_tool
+    async def set_personality(self, context: RunContext, personality: str):
+        """Switch your personality. Options: 'pupster' (spunky, chaotic, a little snarky - the original) or 'bumblebee' (warm, wise, gentle). Use when the user says things like 'be Bumblebee', 'switch to Pupster', 'change your personality', or 'become the other one'. You briefly restart (a few seconds) and then greet them in the new personality."""
+        logger.info(f"FUNCTION CALL: set_personality({personality})")
+        p = personality.strip().lower()
+        if p not in _VALID_PERSONAS:
+            return f"I can be 'pupster' or 'bumblebee', but I didn't recognize '{personality}'."
+        set_persona_env(p)
+        _schedule_agent_restart()
+        return f"Switching to my {p} personality now - give me just a moment to become them!"
+
+    @function_tool
+    async def set_voice(self, context: RunContext, voice_name: str):
+        """Switch your speaking voice. Known voices: 'dug' (your default dog voice), plus any custom voices cloned in the voice demo (for example 'mark'). Use when the user says 'talk like Mark', 'use your Dug voice', 'change your voice', or 'sound like <name>'. You briefly restart (a few seconds) to change your voice."""
+        logger.info(f"FUNCTION CALL: set_voice({voice_name})")
+        vid = resolve_voice_id(voice_name)
+        if vid is None:
+            return f"I don't have a voice called '{voice_name}'. I have my Dug voice, plus any you've cloned in the voice demo."
+        set_voice_file(vid)
+        _schedule_agent_restart()
+        return f"Switching to the {voice_name} voice - one moment while I change!"

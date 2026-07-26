@@ -610,18 +610,33 @@ class RosToolServer():
                 self.node.get_logger().error(f"pkill -{sig} '{pat}' failed: {r.stderr.strip()}")
         return ok
 
+    def _screen(self, on: bool) -> None:
+        """Power the front-panel display output on/off via wlopm (Wayland).
+        Best-effort: a display failure must never block the vision pause."""
+        try:
+            subprocess.run(
+                ["wlopm", "--on" if on else "--off", "*"],
+                env={**os.environ, "XDG_RUNTIME_DIR": "/run/user/1000", "WAYLAND_DISPLAY": "wayland-0"},
+                capture_output=True, text=True, timeout=8,
+            )
+        except Exception as e:
+            self.node.get_logger().warning(f"screen power {'on' if on else 'off'} failed: {e}")
+
     async def rest(self) -> Tuple[bool, str]:
-        """Pause the vision stack (camera + Hailo) to save power and cool down."""
-        self.node.get_logger().info("REST: pausing vision stack (camera + hailo)")
-        if self._signal_vision("STOP"):
-            return True, "Resting now - I closed my eyes to save energy and cool down. Say 'wake up' when you want me to see again."
+        """Pause the vision stack (camera + Hailo) and blank the screen to save power."""
+        self.node.get_logger().info("REST: pausing vision stack + blanking screen")
+        vision_ok = self._signal_vision("STOP")
+        self._screen(False)
+        if vision_ok:
+            return True, "Resting now - I closed my eyes and dimmed my screen to save energy. Say 'wake up' when you want me back."
         return False, "I had trouble settling down to rest."
 
     async def wake(self) -> Tuple[bool, str]:
-        """Resume the vision stack after rest."""
-        self.node.get_logger().info("WAKE: resuming vision stack (camera + hailo)")
+        """Resume the vision stack and turn the screen back on."""
+        self.node.get_logger().info("WAKE: resuming vision stack + screen on")
+        self._screen(True)
         if self._signal_vision("CONT"):
-            return True, "I'm awake - my eyes are back on!"
+            return True, "I'm awake - my eyes and screen are back on!"
         return False, "I had trouble waking my eyes back up."
 
     async def analyze_camera_image(self, prompt: str, context: Any) -> Tuple[bool, str]:
