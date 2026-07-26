@@ -339,9 +339,15 @@ class PupsterAgent(Agent):
     async def _thermal_monitor(self):
         """Background loop: poll CPU temp and proactively warn (in-character) when hot.
         Warns once per threshold crossing; resets when cooled so it can warn again later."""
-        WARN_C = 75.0    # getting warm - might need to rest soon
-        URGENT_C = 80.0  # overheating - recommend resting / shutting down
-        RESET_C = 68.0   # cooled back down - clear warnings
+        # Thresholds tuned for this actively-fan-cooled Pi 5. Its fan reaches
+        # FULL speed at 75C by design (thermal trip points 50/60/67.5/75C), the
+        # SoC doesn't throttle until ~80-85C, and the critical trip is 110C. So
+        # 75C is normal warm operation, not a problem - Teresa's original
+        # 75/80C thresholds cried wolf every few minutes on the stand. Warn only
+        # when genuinely past the fan's full-speed point, urgent near throttle.
+        WARN_C = 83.0    # fan already maxed and still climbing - worth a heads-up
+        URGENT_C = 88.0  # approaching sustained throttle - genuinely too hot
+        RESET_C = 78.0   # cooled back to normal-warm - clear warnings
         POLL_SEC = 20
 
         while True:
