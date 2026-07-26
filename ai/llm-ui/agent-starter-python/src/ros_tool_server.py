@@ -623,6 +623,27 @@ class RosToolServer():
         self._signal_vision("CONT")
         return True, "I'm awake - my eyes are back on!"
 
+    async def check_battery(self) -> Tuple[bool, str]:
+        """Report the latest battery percentage. Reads the GUI's journal (the
+        single I2C reader) rather than the battery ADC directly, to avoid the
+        bus-contention that can wedge the sensor. Run off the event loop."""
+        def _read():
+            r = subprocess.run(
+                ["sh", "-c",
+                 "journalctl -u pupper-gui -b --no-pager | "
+                 "grep -oE 'Battery percentage: Some\\([0-9]+\\)' | tail -1 | grep -oE '[0-9]+'"],
+                capture_output=True, text=True, timeout=10,
+            )
+            return r.stdout.strip()
+        try:
+            pct = await asyncio.to_thread(_read)
+        except Exception as e:
+            self.node.get_logger().warning(f"battery read failed: {e}")
+            pct = ""
+        if pct:
+            return True, f"My battery is at {pct} percent."
+        return False, "I couldn't read my battery level right now."
+
     async def analyze_camera_image(self, prompt: str, context: Any) -> Tuple[bool, str]:
         self.node.get_logger().info(f"FUNCTION CALLED: analyze_camera_image(prompt={prompt})")
         start_time = time.time()

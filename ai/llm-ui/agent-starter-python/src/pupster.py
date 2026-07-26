@@ -717,6 +717,12 @@ Example:
         return await self.tool_impl.wake()
 
     @function_tool
+    async def check_battery(self, context: RunContext):
+        """Report your current battery level as a percentage. Use when the user asks 'what's your battery level', 'how much battery do you have', 'are you charged', 'how's your battery', etc."""
+        logger.info("FUNCTION CALL: check_battery()")
+        return await self.tool_impl.check_battery()
+
+    @function_tool
     async def set_personality(self, context: RunContext, personality: str):
         """Switch your personality. Options: 'pupster' (spunky, chaotic, a little snarky - the original) or 'bumblebee' (warm, wise, gentle). Use when the user says things like 'be Bumblebee', 'switch to Pupster', 'change your personality', or 'become the other one'. You briefly restart (a few seconds) and then greet them in the new personality."""
         logger.info(f"FUNCTION CALL: set_personality({personality})")
